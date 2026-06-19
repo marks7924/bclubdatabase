@@ -165,7 +165,8 @@ router.post('/forgot-password', [
         await user.save();
 
         // Send reset email
-        const resetUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}?reset=${resetToken}`;
+        const frontendUrl = process.env.FRONTEND_URL || 'https://bclub-tau.vercel.app';
+        const resetUrl = `${frontendUrl.replace(/\/$/, '')}?reset=${resetToken}`;
         let emailSent = true;
         try {
             await sendEmail({
