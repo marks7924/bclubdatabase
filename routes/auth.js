@@ -52,25 +52,34 @@ router.post('/register', [
         });
 
         // Send verification email
-        await sendEmail({
-            to: email,
-            subject: 'Verify Your Email - Burger Club',
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                    <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
-                    <p>Thank you for registering. Please use the following 6-digit verification code to verify your account:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
+        let emailSent = true;
+        try {
+            await sendEmail({
+                to: email,
+                subject: 'Verify Your Email - Burger Club',
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                        <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
+                        <p>Thank you for registering. Please use the following 6-digit verification code to verify your account:</p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
+                        </div>
+                        <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
                     </div>
-                    <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
-                </div>
-            `
-        });
+                `
+            });
+        } catch (mailError) {
+            console.error('Email send failed:', mailError.message);
+            emailSent = false;
+        }
 
         res.status(201).json({
             success: true,
-            message: 'Registration successful. Please check your email for the verification code.',
-            token: generateToken(user._id)
+            message: emailSent 
+                ? 'Registration successful. Please check your email for the verification code.' 
+                : 'Registration successful. (Email failed to send, use code: ' + verificationCode + ')',
+            token: generateToken(user._id),
+            fallbackCode: emailSent ? undefined : verificationCode
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -156,20 +165,32 @@ router.post('/forgot-password', [
         await user.save();
 
         // Send reset email
-        const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-        await sendEmail({
-            to: user.email,
-            subject: 'Password Reset - Burger Club',
-            html: `
-                <h1>Password Reset Request</h1>
-                <p>Click the link below to reset your password:</p>
-                <a href="${resetUrl}" style="padding: 10px 20px; background: #E31837; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a>
-                <p>Or copy this link: ${resetUrl}</p>
-                <p>This link expires in 30 minutes.</p>
-            `
-        });
+        const resetUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}?reset=${resetToken}`;
+        let emailSent = true;
+        try {
+            await sendEmail({
+                to: user.email,
+                subject: 'Password Reset - Burger Club',
+                html: `
+                    <h1>Password Reset Request</h1>
+                    <p>Click the link below to reset your password:</p>
+                    <a href="${resetUrl}" style="padding: 10px 20px; background: #E31837; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a>
+                    <p>Or copy this link: ${resetUrl}</p>
+                    <p>This link expires in 30 minutes.</p>
+                `
+            });
+        } catch (mailError) {
+            console.error('Email send failed:', mailError.message);
+            emailSent = false;
+        }
 
-        res.json({ success: true, message: 'Password reset email sent' });
+        res.json({ 
+            success: true, 
+            message: emailSent 
+                ? 'Password reset email sent' 
+                : 'Reset link generated. (Email failed to send, use link: ' + resetUrl + ')',
+            fallbackUrl: emailSent ? undefined : resetUrl
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -270,24 +291,33 @@ router.post('/resend-code', async (req, res) => {
         await user.save();
 
         // Send verification email
-        await sendEmail({
-            to: user.email,
-            subject: 'Verify Your Email - Burger Club',
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                    <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
-                    <p>Here is your new 6-digit verification code to verify your account:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
+        let emailSent = true;
+        try {
+            await sendEmail({
+                to: user.email,
+                subject: 'Verify Your Email - Burger Club',
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                        <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
+                        <p>Here is your new 6-digit verification code to verify your account:</p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
+                        </div>
+                        <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
                     </div>
-                    <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
-                </div>
-            `
-        });
+                `
+            });
+        } catch (mailError) {
+            console.error('Email send failed:', mailError.message);
+            emailSent = false;
+        }
 
         res.json({
             success: true,
-            message: 'Verification code resent successfully'
+            message: emailSent 
+                ? 'Verification code resent successfully' 
+                : 'Code generated. (Email failed to send, use code: ' + verificationCode + ')',
+            fallbackCode: emailSent ? undefined : verificationCode
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
