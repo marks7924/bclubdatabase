@@ -186,6 +186,11 @@ router.post('/', protect, async (req, res) => {
             $push: { orderHistory: order._id }
         });
 
+        // Emit socket event for new order
+        if (req.io) {
+            req.io.emit('new-order', order);
+        }
+
         res.status(201).json({ success: true, data: order });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -232,6 +237,16 @@ router.put('/:id/status', protect, authorize('owner', 'staff', 'delivery'), asyn
 
         await order.save();
 
+        // Emit socket events for order status update
+        if (req.io) {
+            req.io.to(`order-${order._id}`).emit('status-update', {
+                orderId: order._id,
+                status: order.status,
+                statusHistory: order.statusHistory
+            });
+            req.io.emit('admin-order-update', order);
+        }
+
         res.json({ success: true, data: order });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -259,6 +274,16 @@ router.put('/:id/assign-delivery', protect, authorize('owner', 'staff'), async (
         });
 
         await order.save();
+
+        // Emit socket events for driver assignment (sets status to 'ontheway')
+        if (req.io) {
+            req.io.to(`order-${order._id}`).emit('status-update', {
+                orderId: order._id,
+                status: order.status,
+                statusHistory: order.statusHistory
+            });
+            req.io.emit('admin-order-update', order);
+        }
 
         res.json({ success: true, data: order });
     } catch (error) {
