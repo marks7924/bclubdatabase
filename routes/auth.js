@@ -244,6 +244,56 @@ router.post('/verify-code', async (req, res) => {
     }
 });
 
+// @route   POST /api/auth/resend-code
+// @desc    Resend 6-digit OTP verification code
+// @access  Public
+router.post('/resend-code', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Please provide email' });
+        }
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({ success: false, message: 'Email is already verified' });
+        }
+
+        // Generate new 6-digit verification code
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        user.verificationCode = verificationCode;
+        user.verificationCodeExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+        await user.save();
+
+        // Send verification email
+        await sendEmail({
+            to: user.email,
+            subject: 'Verify Your Email - Burger Club',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
+                    <p>Here is your new 6-digit verification code to verify your account:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
+                    </div>
+                    <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
+                </div>
+            `
+        });
+
+        res.json({
+            success: true,
+            message: 'Verification code resent successfully'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // @route   PUT /api/auth/update-profile
 // @desc    Update user profile
 // @access  Private
