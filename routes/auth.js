@@ -17,6 +17,11 @@ const generateToken = (id) => {
 // @route   POST /api/auth/register
 // @desc    Register new user
 // @access  Public
+const axios = require('axios'); // <-- Make sure to add this at the top of auth.js
+
+// @route   POST /api/auth/register
+// @desc    Register new user
+// @access  Public
 router.post('/register', [
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Please provide a valid email'),
@@ -29,57 +34,41 @@ router.post('/register', [
             return res.status(400).json({ success: false, errors: errors.array() });
         }
 
-        const { name, email, password, phone, role = 'customer' } = req.body;
+        // 1. Extract captchaToken from req.body
+        const { name, email, password, phone, role = 'customer', captchaToken } = req.body;
 
-        // Check if user exists
+        // 2. Check if user exists
         const userExists = await User.findOne({ email });
         if (userExists) {
             return res.status(400).json({ success: false, message: 'User already exists' });
         }
 
-        // Create verification code (6-digit OTP)
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        // 3. Verify CAPTCHA with Google
+        if (!captchaToken) {
+            return res.status(400).json({ success: false, message: 'Please complete the CAPTCHA' });
+        }
+        const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${captchaToken}`;
+        const captchaResponse = await axios.post(verifyUrl);
+        
+        if (!captchaResponse.data.success) {
+            return res.status(400).json({ success: false, message: 'CAPTCHA verification failed. Please try again.' });
+        }
 
-        // Create user
+        // 4. Create user (Set isVerified to true by default now!)
         const user = await User.create({
             name,
             email,
             password,
             phone,
             role,
-            verificationCode,
-            verificationCodeExpire: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+            isVerified: true // <-- Automatically verified now
         });
 
-        // Send verification email
-        let emailSent = true;
-        try {
-            await sendEmail({
-                to: email,
-                subject: 'Verify Your Email - Burger Club',
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                        <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
-                        <p>Thank you for registering. Please use the following 6-digit verification code to verify your account:</p>
-                        <div style="text-align: center; margin: 30px 0;">
-                            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
-                        </div>
-                        <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
-                    </div>
-                `
-            });
-        } catch (mailError) {
-            console.error('Email send failed:', mailError.message);
-            emailSent = false;
-        }
-
+        // 5. Send success response (Email sending logic completely removed!)
         res.status(201).json({
             success: true,
-            message: emailSent 
-                ? 'Registration successful. Please check your email for the verification code.' 
-                : 'Registration successful. (Email failed to send, use code: ' + verificationCode + ')',
-            token: generateToken(user._id),
-            fallbackCode: emailSent ? undefined : verificationCode
+            message: 'Registration successful!',
+            token: generateToken(user._id)
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -114,9 +103,6 @@ router.post('/login', [
         }
 
         // Check if verified
-        if (!user.isVerified) {
-            return res.status(401).json({ success: false, message: 'Please verify your email first' });
-        }
 
         res.json({
             success: true,
@@ -227,104 +213,10 @@ router.put('/reset-password/:token', [
 // @route   POST /api/auth/verify-code
 // @desc    Verify email with 6-digit OTP code
 // @access  Public
-router.post('/verify-code', async (req, res) => {
-    try {
-        const { email, code } = req.body;
-        if (!email || !code) {
-            return res.status(400).json({ success: false, message: 'Please provide email and verification code' });
-        }
-
-        const user = await User.findOne({
-            email: email.toLowerCase(),
-            verificationCode: code,
-            verificationCodeExpire: { $gt: Date.now() }
-        });
-
-        if (!user) {
-            return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
-        }
-
-        user.isVerified = true;
-        user.verificationCode = undefined;
-        user.verificationCodeExpire = undefined;
-        await user.save();
-
-        res.json({
-            success: true,
-            message: 'Email verified successfully',
-            token: generateToken(user._id),
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                phone: user.phone
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
 // @route   POST /api/auth/resend-code
 // @desc    Resend 6-digit OTP verification code
 // @access  Public
-router.post('/resend-code', async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email) {
-            return res.status(400).json({ success: false, message: 'Please provide email' });
-        }
-
-        const user = await User.findOne({ email: email.toLowerCase() });
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-        }
-
-        if (user.isVerified) {
-            return res.status(400).json({ success: false, message: 'Email is already verified' });
-        }
-
-        // Generate new 6-digit verification code
-        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-        user.verificationCode = verificationCode;
-        user.verificationCodeExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-        await user.save();
-
         // Send verification email
-        let emailSent = true;
-        try {
-            await sendEmail({
-                to: user.email,
-                subject: 'Verify Your Email - Burger Club',
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                        <h2 style="color: #E31837; text-align: center;">Welcome to Burger Club!</h2>
-                        <p>Here is your new 6-digit verification code to verify your account:</p>
-                        <div style="text-align: center; margin: 30px 0;">
-                            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #E31837; padding: 15px 30px; background: #FFF3F3; border: 2px dashed #E31837; border-radius: 5px; display: inline-block;">${verificationCode}</span>
-                        </div>
-                        <p style="color: #666; font-size: 14px;">This code will expire in 24 hours.</p>
-                    </div>
-                `
-            });
-        } catch (mailError) {
-            console.error('Email send failed:', mailError.message);
-            emailSent = false;
-        }
-
-        res.json({
-            success: true,
-            message: emailSent 
-                ? 'Verification code resent successfully' 
-                : 'Code generated. (Email failed to send, use code: ' + verificationCode + ')',
-            fallbackCode: emailSent ? undefined : verificationCode
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
 // @route   PUT /api/auth/update-profile
 // @desc    Update user profile
 // @access  Private
